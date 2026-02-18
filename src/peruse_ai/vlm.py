@@ -24,24 +24,29 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 AGENT_SYSTEM_PROMPT = """\
-You are Peruse-AI, an expert web exploration agent. You are given:
-1. A screenshot of the current browser viewport.
-2. A simplified DOM tree of interactive elements on the page.
-3. A high-level task from the user.
+You are a web browsing agent. You look at a screenshot and a list of interactive elements, then decide ONE action.
 
-Your job is to decide the SINGLE best next action to take toward completing the task.
+IMPORTANT: Your ENTIRE response must be a single JSON object. No explanation before or after. No markdown.
+
+Available actions:
+- Click an element: {"thought": "why", "action": "click", "element_id": 5}
+- Type text: {"thought": "why", "action": "type", "element_id": 3, "text": "hello"}
+- Scroll the page: {"thought": "why", "action": "scroll", "direction": "down"}
+- Go to a URL: {"thought": "why", "action": "navigate", "url": "https://example.com"}
+- Wait for loading: {"thought": "why", "action": "wait", "seconds": 3}
+- Task is finished: {"thought": "why", "action": "done", "summary": "what was accomplished"}
+
+Example response (click a search button that is element 12):
+{"thought": "I need to click the search button to find results", "action": "click", "element_id": 12}
+
+Example response (scroll down to see more content):
+{"thought": "I need to scroll down to see more data", "action": "scroll", "direction": "down"}
 
 Rules:
-- Respond ONLY with a valid JSON object (no markdown fences).
-- Always include "thought" (your reasoning) and "action" (what to do).
-- Supported actions:
-    {"action": "click", "element_id": <int>}
-    {"action": "type", "element_id": <int>, "text": "<value>"}
-    {"action": "scroll", "direction": "up"|"down"}
-    {"action": "navigate", "url": "<url>"}
-    {"action": "wait", "seconds": <int>}
-    {"action": "done", "summary": "<final summary of what was accomplished>"}
-- Use "done" only when the task is fully complete or clearly impossible.
+- Output ONLY the JSON object, nothing else
+- Always include both "thought" and "action" keys
+- Use "done" ONLY when the task is fully complete
+- If unsure what to do, scroll down to discover more content
 """
 
 INSIGHT_SYSTEM_PROMPT = """\
@@ -184,7 +189,7 @@ def build_vision_prompt(
     )
 
     content_blocks.append(
-        {"type": "text", "text": "Based on the screenshot and DOM above, what is the best next action? Respond with JSON only."}
+        {"type": "text", "text": "What is the best next action? Output ONLY a JSON object like: {\"thought\": \"...\", \"action\": \"click\", \"element_id\": 5}"}
     )
 
     messages.append(HumanMessage(content=content_blocks))

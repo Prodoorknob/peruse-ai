@@ -167,40 +167,124 @@ def _find_element(dom_elements: list[dict], element_id: int) -> Optional[dict]:
 def parse_vlm_response(raw_response: str) -> dict:
     """Parse the VLM's JSON response into an action dict.
 
-    Handles common issues like markdown code fences, trailing text, etc.
+    Handles common issues like markdown code fences, trailing text, mixed content,
+    and natural language responses from local VLMs.
 
     Args:
         raw_response: The raw string content from the VLM.
 
     Returns:
-        A parsed action dict. Falls back to {"action": "done"} on parse failure.
+        A parsed action dict. Falls back to scroll (not done) on parse failure
+        so the agent keeps exploring instead of prematurely stopping.
     """
     text = raw_response.strip()
 
-    # Strip markdown code fences if present
-    if text.startswith("```"):
-        lines = text.split("\n")
-        # Remove first line (```json or ```) and last line (```)
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        text = "\n".join(lines).strip()
+    # --- Strategy 1: Strip markdown code fences ---
+    import re
 
-    # Try to find JSON object in the text
+    # Remove ```json ... ``` or ``` ... ``` blocks
+    fenced = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+    if fenced:
+        text = fenced.group(1).strip()
+
+    # --- Strategy 2: Direct JSON parse ---
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
+        if isinstance(parsed, dict) and "action" in parsed:
+            return parsed
     except json.JSONDecodeError:
         pass
 
-    # Try to extract JSON from within the text
+    # --- Strategy 3: Find JSON object with brace matching ---
+    json_candidates = _extract_json_objects(text)
+    for candidate in json_candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict) and "action" in parsed:
+                return parsed
+        except json.JSONDecodeError:
+            continue
+
+    # --- Strategy 4: Simple brace extraction (first { to last }) ---
     start = text.find("{")
     end = text.rfind("}") + 1
     if start >= 0 and end > start:
         try:
-            return json.loads(text[start:end])
+            parsed = json.loads(text[start:end])
+            if isinstance(parsed, dict):
+                # Even if missing "action", try to recover
+                if "action" not in parsed:
+                    parsed.setdefault("action", "scroll")
+                    parsed.setdefault("direction", "down")
+                return parsed
         except json.JSONDecodeError:
             pass
 
-    logger.warning("Failed to parse VLM response as JSON: %s", text[:200])
-    return {"action": "done", "summary": "Failed to parse VLM response", "thought": text[:200]}
+    # --- Strategy 5: Keyword-based fallback from natural language ---
+    text_lower = text.lower()
+
+    # Detect if VLM is describing a click action in natural language
+    click_match = re.search(r"(?:click|press|tap|select).*?(?:element|button|link)?\s*\[?(\d+)\]?", text_lower)
+    if click_match:
+        element_id = int(click_match.group(1))
+        logger.info("Recovered click action from natural language: element_id=%d", element_id)
+        return {"action": "click", "element_id": element_id, "thought": f"(recovered from text) {text[:100]}"}
+
+    # Detect scroll intent
+    if any(word in text_lower for word in ["scroll down", "scroll page", "see more", "below"]):
+        logger.info("Recovered scroll action from natural language")
+        return {"action": "scroll", "direction": "down", "thought": f"(recovered from text) {text[:100]}"}
+
+    if any(word in text_lower for word in ["scroll up", "back to top", "above"]):
+        logger.info("Recovered scroll-up action from natural language")
+        return {"action": "scroll", "direction": "up", "thought": f"(recovered from text) {text[:100]}"}
+
+    # Detect done/complete intent
+    if any(word in text_lower for word in ["task is complete", "task is done", "finished", "nothing more"]):
+        logger.info("Recovered done action from natural language")
+        return {"action": "done", "summary": text[:200], "thought": text[:100]}
+
+    # --- Fallback: Scroll down to keep exploring (NOT done!) ---
+    logger.warning("Could not parse VLM response, falling back to scroll. Raw: %s", text[:300])
+    return {
+        "action": "scroll",
+        "direction": "down",
+        "thought": f"(parse failed, auto-scrolling to continue exploration) {text[:100]}",
+        "_parse_failed": True,
+    }
+
+
+def _extract_json_objects(text: str) -> list[str]:
+    """Extract potential JSON objects from text using brace matching."""
+    objects = []
+    i = 0
+    while i < len(text):
+        if text[i] == "{":
+            depth = 0
+            start = i
+            in_string = False
+            escape_next = False
+            for j in range(i, len(text)):
+                char = text[j]
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == "\\":
+                    escape_next = True
+                    continue
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                if not in_string:
+                    if char == "{":
+                        depth += 1
+                    elif char == "}":
+                        depth -= 1
+                        if depth == 0:
+                            objects.append(text[start : j + 1])
+                            i = j
+                            break
+        i += 1
+    return objects
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +337,8 @@ class PeruseAgent:
             monitor = attach_error_monitor(page)
 
             step_history: list[dict] = []
+            consecutive_parse_failures = 0
+            max_parse_failures = 5  # Stop after this many consecutive parse failures
 
             for step_num in range(1, self.config.max_steps + 1):
                 logger.info("=== Step %d / %d ===", step_num, self.config.max_steps)
@@ -265,6 +351,24 @@ class PeruseAgent:
                         step_history=step_history,
                     )
                     result.steps.append(step)
+
+                    # Track parse failures
+                    if step.parsed_action.get("_parse_failed"):
+                        consecutive_parse_failures += 1
+                        logger.warning(
+                            "Parse failure %d/%d",
+                            consecutive_parse_failures,
+                            max_parse_failures,
+                        )
+                        if consecutive_parse_failures >= max_parse_failures:
+                            result.error = (
+                                f"Stopped after {max_parse_failures} consecutive VLM parse failures. "
+                                "The model may not support structured JSON output well."
+                            )
+                            logger.error(result.error)
+                            break
+                    else:
+                        consecutive_parse_failures = 0  # Reset on successful parse
 
                     # Track history for VLM context
                     step_history.append({
