@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "peruse-ai"
+version = "0.1.0"
+description = "A local-first universal web agent that autonomously explores web apps using browser-use, Playwright, and a local Vision-Language Model."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Rajas", email = "rajas@example.com" },
+]
+keywords = ["web-agent", "browser-automation", "vlm", "ai", "playwright", "browser-use"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
+dependencies = [
+    "browser-use>=0.11.0",
+    "playwright>=1.40.0",
+    "langchain-ollama>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "Pillow>=10.0",
+    "rich>=13.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "build>=1.0",
+]
+
+[project.scripts]
+peruse = "peruse_ai.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rajas/peruse-ai"
+Repository = "https://github.com/rajas/peruse-ai"
+Issues = "https://github.com/rajas/peruse-ai/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/peruse_ai"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
