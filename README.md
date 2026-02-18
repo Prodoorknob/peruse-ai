@@ -1,23 +1,23 @@
-# 🔍 Peruse-AI
+# Peruse-AI
 
 **A local-first universal web agent** that autonomously explores web applications and produces structured reports — powered by [browser-use](https://github.com/browser-use/browser-use), [Playwright](https://playwright.dev/python/), and a local Vision-Language Model (Qwen2.5-VL via Ollama).
 
 ---
 
-## ✨ Features
+## Features
 
 - **Autonomous Web Exploration** — Give it a URL and a goal; it figures out the rest.
 - **Dual-Channel Perception** — Combines DOM extraction *and* visual screenshots for robust element detection.
 - **100% Local** — Your data never leaves your machine. Runs on Ollama, LM Studio, or any OpenAI-compatible local endpoint.
 - **Multi-Output Pipeline** — Generates three report types from a single session:
-  - 📊 **Data Insights** — Summaries of charts, tables, and visible data.
-  - 🎨 **UX/UI Review** — Contrast, layout, accessibility, and usability critique.
-  - 🐛 **Bug Report** — Console errors, failed requests, and reproduction steps.
+  - **Data Insights** — Summaries of charts, tables, and visible data.
+  - **UX/UI Review** — Contrast, layout, accessibility, and usability critique.
+  - **Bug Report** — Console errors, failed requests, and reproduction steps.
 - **Beautiful CLI** — Rich terminal output with progress bars and colored logs.
 
 ---
 
-## 🚀 Quickstart
+##  Quickstart
 
 ### Prerequisites
 
@@ -68,7 +68,7 @@ print(result.insights)
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 All settings can be passed via constructor, environment variables (`PERUSE_*`), or a `.env` file.
 
@@ -83,7 +83,7 @@ All settings can be passed via constructor, environment variables (`PERUSE_*`), 
 
 ---
 
-## 🛠️ Development
+## Development
 
 ```bash
 git clone https://github.com/rajas/peruse-ai.git
@@ -95,6 +95,6 @@ pytest tests/ -v
 
 ---
 
-## 📄 License
+## License
 
 MIT
