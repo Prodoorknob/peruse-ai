@@ -21,6 +21,7 @@ class VLMBackend(str, Enum):
     OLLAMA = "ollama"
     LMSTUDIO = "lmstudio"
     OPENAI_COMPAT = "openai_compat"
+    JINA = "jina"
 
 
 class PeruseConfig(BaseSettings):
@@ -43,10 +44,10 @@ class PeruseConfig(BaseSettings):
     # --- VLM Settings ---
     vlm_backend: VLMBackend = Field(
         default=VLMBackend.OLLAMA,
-        description="Which VLM backend to use: 'ollama', 'lmstudio', or 'openai_compat'.",
+        description="Which VLM backend to use: 'ollama', 'lmstudio', 'openai_compat', or 'jina'.",
     )
     vlm_model: str = Field(
-        default="qwen2.5-vl:7b",
+        default="qwen3-vl:6b",
         description="Model identifier (e.g. Ollama tag, LM Studio model name).",
     )
     vlm_base_url: str = Field(
@@ -66,6 +67,10 @@ class PeruseConfig(BaseSettings):
     vlm_timeout: int = Field(
         default=120,
         description="Timeout in seconds for a single VLM inference call.",
+    )
+    vlm_num_ctx: int = Field(
+        default=32768,
+        description="Context window size (tokens) for local VLMs like Ollama. Must be large for multi-image prompts.",
     )
 
     # --- Browser Settings ---
@@ -115,4 +120,10 @@ class PeruseConfig(BaseSettings):
         """Return the LM Studio-specific base URL (default port 1234)."""
         if self.vlm_base_url == "http://localhost:11434":
             return "http://localhost:1234/v1"
+        return self.vlm_base_url
+
+    def get_jina_base_url(self) -> str:
+        """Return the Jina API specific base URL."""
+        if self.vlm_base_url == "http://localhost:11434":
+            return "https://api-beta-vlm.jina.ai/v1"
         return self.vlm_base_url

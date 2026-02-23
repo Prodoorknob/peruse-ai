@@ -54,8 +54,8 @@ def main():
 @main.command()
 @click.option("--url", required=True, help="Starting URL to explore.")
 @click.option("--task", required=True, help="High-level goal for the agent.")
-@click.option("--model", default="qwen2.5-vl:7b", help="VLM model name.")
-@click.option("--backend", default="ollama", type=click.Choice(["ollama", "lmstudio", "openai_compat"]))
+@click.option("--model", default="qwen3-vl:6b", help="VLM model name.")
+@click.option("--backend", default="ollama", type=click.Choice(["ollama", "lmstudio", "openai_compat", "jina"]))
 @click.option("--base-url", default=None, help="VLM API base URL (auto-detected for ollama/lmstudio).")
 @click.option("--output", default="./peruse_output", help="Output directory for reports.", type=click.Path())
 @click.option("--max-steps", default=50, help="Maximum agent loop iterations.", type=int)
@@ -74,6 +74,9 @@ async def _run_agent(url, task, model, backend, base_url, output, max_steps, hea
     from peruse_ai.outputs import save_outputs
     from peruse_ai.vlm import create_vlm
 
+    if backend == "jina" and model == "qwen3-vl:6b":
+        model = "jina-vlm"
+
     # Build config
     config_kwargs = {
         "vlm_backend": VLMBackend(backend),
@@ -90,7 +93,7 @@ async def _run_agent(url, task, model, backend, base_url, output, max_steps, hea
     # Show run banner
     console.print(
         Panel.fit(
-            f"[bold cyan]🔍 Peruse-AI[/bold cyan]\n\n"
+            f"[bold cyan] Peruse-AI[/bold cyan]\n\n"
             f"[bold]URL:[/bold] {url}\n"
             f"[bold]Task:[/bold] {task}\n"
             f"[bold]Model:[/bold] {model} ({backend})\n"
@@ -146,8 +149,8 @@ async def _run_agent(url, task, model, backend, base_url, output, max_steps, hea
 @click.option("--url", required=True, help="Starting URL to scan.")
 @click.option("--task", default="Navigate all links and report any errors encountered.",
               help="Scan goal.")
-@click.option("--model", default="qwen2.5-vl:7b", help="VLM model name.")
-@click.option("--backend", default="ollama", type=click.Choice(["ollama", "lmstudio", "openai_compat"]))
+@click.option("--model", default="qwen3-vl:6b", help="VLM model name.")
+@click.option("--backend", default="ollama", type=click.Choice(["ollama", "lmstudio", "openai_compat", "jina"]))
 @click.option("--base-url", default=None, help="VLM API base URL.")
 @click.option("--output", default="./peruse_output", help="Output directory.", type=click.Path())
 @click.option("--max-steps", default=30, help="Maximum steps for scan.", type=int)
@@ -164,6 +167,9 @@ async def _scan_agent(url, task, model, backend, base_url, output, max_steps):
     from peruse_ai.config import PeruseConfig, VLMBackend
     from peruse_ai.outputs import save_outputs
 
+    if backend == "jina" and model == "qwen3-vl:6b":
+        model = "jina-vlm"
+
     config_kwargs = {
         "vlm_backend": VLMBackend(backend),
         "vlm_model": model,
@@ -176,7 +182,7 @@ async def _scan_agent(url, task, model, backend, base_url, output, max_steps):
 
     config = PeruseConfig(**config_kwargs)
 
-    console.print(f"[bold cyan]🔍 Scanning:[/bold cyan] {url}")
+    console.print(f"[bold cyan] Scanning:[/bold cyan] {url}")
     console.print(f"[dim]Task: {task}[/dim]\n")
 
     agent = PeruseAgent(config=config, url=url, task=task)
@@ -201,8 +207,8 @@ async def _scan_agent(url, task, model, backend, base_url, output, max_steps):
 
 
 @main.command("check-vlm")
-@click.option("--model", default="qwen2.5-vl:7b", help="VLM model name.")
-@click.option("--backend", default="ollama", type=click.Choice(["ollama", "lmstudio", "openai_compat"]))
+@click.option("--model", default="qwen3-vl:6b", help="VLM model name.")
+@click.option("--backend", default="ollama", type=click.Choice(["ollama", "lmstudio", "openai_compat", "jina"]))
 @click.option("--base-url", default=None, help="VLM API base URL.")
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
 def check_vlm(model, backend, base_url, verbose):
@@ -215,6 +221,9 @@ async def _check_vlm(model, backend, base_url):
     """Internal async handler for check-vlm."""
     from peruse_ai.config import PeruseConfig, VLMBackend
     from peruse_ai.vlm import check_vlm_connection
+
+    if backend == "jina" and model == "qwen3-vl:6b":
+        model = "jina-vlm"
 
     config_kwargs = {
         "vlm_backend": VLMBackend(backend),

@@ -84,6 +84,8 @@ def create_vlm(config: PeruseConfig) -> BaseChatModel:
         return _create_lmstudio_vlm(config)
     elif config.vlm_backend == VLMBackend.OPENAI_COMPAT:
         return _create_openai_compat_vlm(config)
+    elif config.vlm_backend == VLMBackend.JINA:
+        return _create_jina_vlm(config)
     else:
         raise ValueError(f"Unsupported VLM backend: {config.vlm_backend}")
 
@@ -98,6 +100,7 @@ def _create_ollama_vlm(config: PeruseConfig) -> BaseChatModel:
         base_url=config.get_ollama_base_url(),
         temperature=config.vlm_temperature,
         timeout=config.vlm_timeout,
+        num_ctx=config.vlm_num_ctx,
     )
 
 
@@ -133,6 +136,24 @@ def _create_openai_compat_vlm(config: PeruseConfig) -> BaseChatModel:
         timeout=config.vlm_timeout,
     )
 
+
+def _create_jina_vlm(config: PeruseConfig) -> BaseChatModel:
+    """Create a Jina-backed VLM via OpenAI-compatible endpoint."""
+    from langchain_openai import ChatOpenAI
+
+    base_url = config.get_jina_base_url()
+    logger.info("Initializing Jina VLM: model=%s, base_url=%s", config.vlm_model, base_url)
+    
+    if not config.vlm_api_key:
+        logger.warning("No Jina API key provided. Requests to api-beta-vlm.jina.ai require an API key.")
+
+    return ChatOpenAI(
+        model=config.vlm_model,
+        base_url=base_url,
+        api_key=config.vlm_api_key or "not-provided",
+        temperature=config.vlm_temperature,
+        timeout=config.vlm_timeout,
+    )
 
 # ---------------------------------------------------------------------------
 # Prompt Builders

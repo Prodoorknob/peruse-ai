@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
-    { name = "Rajas", email = "rajas@example.com" },
+    { name = "rvedire", email = "rajashekarreddy091@gmail.com" },
 ]
 keywords = ["web-agent", "browser-automation", "vlm", "ai", "playwright", "browser-use"]
 classifiers = [
@@ -50,9 +50,9 @@ dev = [
 peruse = "peruse_ai.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/rajas/peruse-ai"
-Repository = "https://github.com/rajas/peruse-ai"
-Issues = "https://github.com/rajas/peruse-ai/issues"
+Homepage = "https://github.com/prodoorknob/peruse-ai"
+Repository = "https://github.com/prodoorknob/peruse-ai"
+Issues = "https://github.com/prodoorknob/peruse-ai/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/peruse_ai"]

@@ -19,7 +19,7 @@ class TestPeruseConfigDefaults:
 
     def test_default_model(self):
         config = PeruseConfig()
-        assert config.vlm_model == "qwen2.5-vl:7b"
+        assert config.vlm_model == "qwen3-vl:6b"
 
     def test_default_base_url(self):
         config = PeruseConfig()
@@ -108,6 +108,17 @@ class TestPeruseConfigBackendURLs:
             vlm_base_url="http://192.168.1.100:1234/v1",
         )
         assert config.get_lmstudio_base_url() == "http://192.168.1.100:1234/v1"
+
+    def test_jina_base_url_auto_switch(self):
+        config = PeruseConfig(vlm_backend=VLMBackend.JINA)
+        assert config.get_jina_base_url() == "https://api-beta-vlm.jina.ai/v1"
+
+    def test_jina_base_url_custom(self):
+        config = PeruseConfig(
+            vlm_backend=VLMBackend.JINA,
+            vlm_base_url="https://api.custom.jina.ai",
+        )
+        assert config.get_jina_base_url() == "https://api.custom.jina.ai"
 
 
 class TestPeruseConfigEnvVars:

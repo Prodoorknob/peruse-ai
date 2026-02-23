@@ -1,6 +1,6 @@
 # Peruse-AI
 
-**A local-first universal web agent** that autonomously explores web applications and produces structured reports — powered by [browser-use](https://github.com/browser-use/browser-use), [Playwright](https://playwright.dev/python/), and a local Vision-Language Model (Qwen2.5-VL via Ollama).
+**A local-first universal web agent** that autonomously explores web applications and produces structured reports, powered by [browser-use](https://github.com/browser-use/browser-use), [Playwright](https://playwright.dev/python/), and a local Vision-Language Model (Qwen2.5-VL via Ollama).
 
 ---
 
@@ -13,7 +13,6 @@
   - **Data Insights** — Summaries of charts, tables, and visible data.
   - **UX/UI Review** — Contrast, layout, accessibility, and usability critique.
   - **Bug Report** — Console errors, failed requests, and reproduction steps.
-- **Beautiful CLI** — Rich terminal output with progress bars and colored logs.
 
 ---
 

@@ -64,8 +64,15 @@ async def generate_data_insights(result: AgentResult, vlm: BaseChatModel) -> str
     )
 
     logger.info("Generating data insights from %d screenshots...", len(screenshots))
-    response = await vlm.ainvoke(messages)
-    report = response.content
+    try:
+        response = await vlm.ainvoke(messages)
+        report = response.content.strip()
+    except Exception as e:
+        logger.error("Failed to generate data insights: %s", e)
+        report = ""
+
+    if not report:
+        report = "> ⚠️ **Warning:** The VLM returned an empty response or encountered an error. This typically happens when the prompt length (number of images) exceeds the model's configured context window limit (`num_ctx`). Try increasing `vlm_num_ctx` in the configuration.\n"
 
     # Wrap with header
     header = (
@@ -111,8 +118,15 @@ async def generate_ux_review(result: AgentResult, vlm: BaseChatModel) -> str:
     )
 
     logger.info("Generating UX review from %d screenshots...", len(screenshots))
-    response = await vlm.ainvoke(messages)
-    report = response.content
+    try:
+        response = await vlm.ainvoke(messages)
+        report = response.content.strip()
+    except Exception as e:
+        logger.error("Failed to generate UX review: %s", e)
+        report = ""
+
+    if not report:
+        report = "> ⚠️ **Warning:** The VLM returned an empty response or encountered an error. This typically happens when the prompt length (number of images) exceeds the model's configured context window limit (`num_ctx`). Try increasing `vlm_num_ctx` in the configuration.\n"
 
     header = (
         f"# 🎨 UX/UI Review Report\n\n"
