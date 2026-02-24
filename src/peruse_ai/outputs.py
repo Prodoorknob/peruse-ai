@@ -6,6 +6,7 @@ Multi-output generators that post-process an AgentResult into Markdown reports.
 
 from __future__ import annotations
 
+import io
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,8 +47,8 @@ async def generate_data_insights(result: AgentResult, vlm: BaseChatModel) -> str
     if not result.screenshots:
         return "# Data Insights\n\nNo screenshots were captured during the session.\n"
 
-    # Use a sample of screenshots (first, middle, last) to avoid token overload
-    screenshots = _sample_screenshots(result.screenshots, max_count=5)
+    # Use a sample of unique screenshots — dedup removes near-identical frames
+    screenshots = _sample_screenshots(result.screenshots, max_count=10)
     screenshots_b64 = [encode_image_b64(s) for s in screenshots]
 
     context = (
@@ -102,7 +103,7 @@ async def generate_ux_review(result: AgentResult, vlm: BaseChatModel) -> str:
     if not result.screenshots:
         return "# UX/UI Review\n\nNo screenshots were captured during the session.\n"
 
-    screenshots = _sample_screenshots(result.screenshots, max_count=4)
+    screenshots = _sample_screenshots(result.screenshots, max_count=8)
     screenshots_b64 = [encode_image_b64(s) for s in screenshots]
 
     context = (
@@ -237,6 +238,10 @@ async def save_outputs(
 
     saved: dict[str, Path] = {}
 
+    # Shared filename components
+    model_name = vlm.__class__.__name__ if vlm else "no_vlm"
+    ts = _timestamp_slug()
+
     # Save screenshots
     screenshots_dir = output_dir / "screenshots"
     screenshots_dir.mkdir(exist_ok=True)
@@ -248,7 +253,7 @@ async def save_outputs(
     # Bug report (no VLM needed)
     if generate_bugs:
         bug_report = generate_bug_report(result)
-        bug_path = output_dir / "bug_report.md"
+        bug_path = output_dir / f"bug_report_{model_name}_{ts}.md"
         bug_path.write_text(bug_report, encoding="utf-8")
         saved["bugs"] = bug_path
         logger.info("Bug report saved to %s", bug_path)
@@ -257,14 +262,14 @@ async def save_outputs(
     if vlm:
         if generate_insights:
             insights = await generate_data_insights(result, vlm)
-            insights_path = output_dir / "data_insights.md"
+            insights_path = output_dir / f"data_insights_{model_name}_{ts}.md"
             insights_path.write_text(insights, encoding="utf-8")
             saved["insights"] = insights_path
             logger.info("Data insights saved to %s", insights_path)
 
         if generate_ux:
             ux_review = await generate_ux_review(result, vlm)
-            ux_path = output_dir / "ux_review.md"
+            ux_path = output_dir / f"ux_review_{model_name}_{ts}.md"
             ux_path.write_text(ux_review, encoding="utf-8")
             saved["ux"] = ux_path
             logger.info("UX review saved to %s", ux_path)
@@ -278,16 +283,59 @@ async def save_outputs(
 
 
 def _sample_screenshots(screenshots: list[bytes], max_count: int = 5) -> list[bytes]:
-    """Sample screenshots evenly from the run to avoid token overload."""
-    if len(screenshots) <= max_count:
-        return screenshots
+    """Deduplicate near-identical screenshots, then sample evenly.
 
-    step = len(screenshots) / max_count
+    Uses perceptual hashing to drop consecutive frames that look the same
+    (e.g. from scroll-only or stuck-in-loop steps). Then samples evenly
+    from the unique set.
+    """
+    if not screenshots:
+        return []
+
+    # --- Step 1: Deduplicate consecutive near-identical screenshots ---
+    unique: list[bytes] = [screenshots[0]]
+    prev_hash = _image_hash(screenshots[0])
+    for shot in screenshots[1:]:
+        h = _image_hash(shot)
+        if h != prev_hash:
+            unique.append(shot)
+            prev_hash = h
+
+    logger.info(
+        "Screenshot dedup: %d total → %d unique", len(screenshots), len(unique)
+    )
+
+    # --- Step 2: Sample evenly from the unique set ---
+    if len(unique) <= max_count:
+        return unique
+
+    step = len(unique) / max_count
     indices = [int(i * step) for i in range(max_count)]
     # Always include the last screenshot
-    if indices[-1] != len(screenshots) - 1:
-        indices[-1] = len(screenshots) - 1
-    return [screenshots[i] for i in indices]
+    if indices[-1] != len(unique) - 1:
+        indices[-1] = len(unique) - 1
+    return [unique[i] for i in indices]
+
+
+def _image_hash(image_bytes: bytes, size: int = 8) -> int:
+    """Compute a simple average-hash for a screenshot (for dedup, not crypto).
+
+    Resizes the image to ``size x size`` grayscale and compares each pixel to
+    the mean to produce a 64-bit hash. Identical or near-identical images
+    produce the same hash.
+    """
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(image_bytes)).convert("L").resize(
+            (size, size), Image.LANCZOS
+        )
+        pixels = list(img.getdata())
+        avg = sum(pixels) / len(pixels)
+        return sum(1 << i for i, px in enumerate(pixels) if px >= avg)
+    except Exception:
+        # If hashing fails, return id so nothing gets deduped
+        return id(image_bytes)
 
 
 def _describe_action(action: dict) -> str:
@@ -309,5 +357,10 @@ def _describe_action(action: dict) -> str:
 
 
 def _timestamp() -> str:
-    """ISO timestamp string."""
+    """ISO timestamp string for report headers."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _timestamp_slug() -> str:
+    """Filesystem-safe timestamp for filenames (no colons or spaces)."""
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

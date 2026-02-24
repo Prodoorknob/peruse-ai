@@ -69,8 +69,8 @@ class PeruseConfig(BaseSettings):
         description="Timeout in seconds for a single VLM inference call.",
     )
     vlm_num_ctx: int = Field(
-        default=32768,
-        description="Context window size (tokens) for local VLMs like Ollama. Must be large for multi-image prompts.",
+        default=8192,
+        description="Context window size (tokens) for local VLMs like Ollama. Smaller values speed up inference.",
     )
 
     # --- Browser Settings ---
@@ -87,6 +87,12 @@ class PeruseConfig(BaseSettings):
         ge=1,
         le=500,
         description="Maximum number of perceive-plan-act iterations.",
+    )
+    max_dom_elements: int = Field(
+        default=100,
+        ge=0,
+        description="Maximum number of DOM elements to send to the VLM per step (0 = unlimited). "
+        "Lower values reduce prompt size and speed up inference.",
     )
     screenshot_quality: int = Field(
         default=80,

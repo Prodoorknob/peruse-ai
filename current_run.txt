@@ -1,0 +1,80 @@
+╭────────── Agent Configuration ───────────╮
+│  Peruse-AI                               │
+│                                          │
+│ URL: https://runindex.vercel.app/        │
+│ Task: Explore and summarize what you see │
+│ Model: qwen3-vl:8b (ollama)              │
+│ Max Steps: 50                            │
+│ Headless: True                           │
+╰──────────────────────────────────────────╯
+[15:28:32] INFO     Starting Peruse-AI agent | URL: https://runindex.vercel.app/ | Task: Explore and summarize what you see
+           INFO     Initializing Ollama VLM: model=qwen3-vl:8b, base_url=http://localhost:11434
+[15:28:37] INFO     Browser launched (headless=True, viewport=1280x720)
+           INFO     Navigating to: https://runindex.vercel.app/ (wait_until=domcontentloaded)
+[15:28:40] INFO     Error monitor attached to page.
+           INFO     === Step 1 / 50 ===
+           INFO     Extracted 14 interactive DOM elements.
+           WARNING  Page error: Minified React error #418; visit https://react.dev/errors/418?args[]=text&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.      
+           INFO     Sending perception to VLM (DOM elements: 14)...
+[15:28:49] INFO     Waiting 3 seconds
+[15:28:52] INFO     === Step 2 / 50 ===
+           INFO     Extracted 1266 interactive DOM elements.
+           INFO     Sending perception to VLM (DOM elements: 1266)...
+[15:36:31] WARNING  Could not parse VLM response, falling back to scroll. Raw: Based on the current page, I can see this is a running event website with a map view showing various race locations across the United States. The user
+                    is currently viewing a map with numerous markers representing different races.
+
+                    The most logical next action would be to click on one of the map mark
+           INFO     Scrolling down
+[15:36:32] WARNING  Parse failure 1/5
+           INFO     === Step 3 / 50 ===
+[15:36:33] INFO     Extracted 1266 interactive DOM elements.
+           INFO     Sending perception to VLM (DOM elements: 1266)...
+[16:55:06] WARNING  Could not parse VLM response, falling back to scroll. Raw:
+           INFO     Scrolling down
+[16:55:07] WARNING  Parse failure 2/5
+           INFO     === Step 4 / 50 ===
+           INFO     Extracted 1266 interactive DOM elements.
+           INFO     Sending perception to VLM (DOM elements: 1266)...
+[18:12:47] WARNING  Could not parse VLM response, falling back to scroll. Raw:
+           INFO     Scrolling down
+[18:12:48] WARNING  Parse failure 3/5
+           INFO     === Step 5 / 50 ===
+           INFO     Extracted 1266 interactive DOM elements.
+           INFO     Sending perception to VLM (DOM elements: 1266)...
+[18:14:10] INFO     Clicking element [1020] at (397, 449): Map marker
+[18:14:11] INFO     === Step 6 / 50 ===
+           INFO     Extracted 1266 interactive DOM elements.
+           INFO     Sending perception to VLM (DOM elements: 1266)...
+[18:26:20] WARNING  Could not parse VLM response, falling back to scroll. Raw: python
+                    def find_closest_marker(markers):
+                        min_distance = float('inf')
+                        closest_index = -1
+                        for i, (x, y) in enumerate(markers):
+                            distance_squared = x * x + y * y
+                            if distance_squared < min_distance:
+                                min_distance = distance_squared
+                                closest_index = i
+
+           INFO     Scrolling down
+[18:26:21] WARNING  Parse failure 1/5
+           INFO     === Step 7 / 50 ===
+           INFO     Extracted 1266 interactive DOM elements.
+           INFO     Sending perception to VLM (DOM elements: 1266)...
+[19:36:27] WARNING  Could not parse VLM response, falling back to scroll. Raw: html
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Running Events</title>
+                    </head>
+                    <body>
+                        <h1>Upcoming Races</h1>
+                        <ul>
+                            <li><a href="/events/chicago-marathon">Chicago Marathon</a> - View Details</li>
+                            <li><a href="/events/5k">5K Race</a> - View Details</li>
+                            <li><a href="/even
+           INFO     Scrolling down
+[19:36:28] WARNING  Parse failure 2/5
+           INFO     === Step 8 / 50 ===
+           INFO     Extracted 1266 interactive DOM elements.
+           INFO     Sending perception to VLM (DOM elements: 1266)...
+⠙ Running agent...

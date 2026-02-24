@@ -7,6 +7,7 @@ Main agent loop: perceive → plan → act, orchestrating browser, VLM, and perc
 from __future__ import annotations
 
 import json
+import io
 import logging
 import time
 from dataclasses import dataclass, field
@@ -132,6 +133,30 @@ async def execute_action(page, action: dict, dom_elements: list[dict]) -> None:
         await page.mouse.wheel(0, delta)
         await page.wait_for_timeout(800)
 
+    elif action_type == "select":
+        element_id = action.get("element_id", -1)
+        value = action.get("value", "")
+        target = _find_element(dom_elements, element_id)
+        if target and target.get("tag") == "select" and value:
+            rect = target["rect"]
+            logger.info("Selecting '%s' in element [%d]", value, element_id)
+            try:
+                # Find the <select> at the matching position and use select_option
+                selects = await page.query_selector_all("select")
+                for sel in selects:
+                    box = await sel.bounding_box()
+                    if box and abs(box["x"] - rect["x"]) < 5 and abs(box["y"] - rect["y"]) < 5:
+                        await sel.select_option(label=value)
+                        logger.info("Selected option '%s' successfully", value)
+                        break
+                else:
+                    logger.warning("Could not locate <select> element [%d] on page.", element_id)
+            except Exception as e:
+                logger.warning("Failed to select option '%s': %s", value, e)
+            await page.wait_for_timeout(1000)
+        else:
+            logger.warning("Element [%d] is not a <select> or no value provided.", element_id)
+
     elif action_type == "navigate":
         url = action.get("url", "")
         if url:
@@ -157,6 +182,48 @@ def _find_element(dom_elements: list[dict], element_id: int) -> Optional[dict]:
         if el.get("id") == element_id:
             return el
     return None
+
+
+def _action_signature(action: dict) -> str:
+    """Create a comparable signature from an action dict, ignoring 'thought'."""
+    key_parts = [action.get("action", "")]
+    if "element_id" in action:
+        key_parts.append(f"el={action['element_id']}")
+    if "text" in action:
+        key_parts.append(f"text={action['text']}")
+    if "value" in action:
+        key_parts.append(f"val={action['value']}")
+    if "direction" in action:
+        key_parts.append(f"dir={action['direction']}")
+    if "url" in action:
+        key_parts.append(f"url={action['url']}")
+    return "|".join(key_parts)
+
+
+def _compress_screenshot(png_bytes: bytes, quality: int = 60) -> bytes:
+    """Convert PNG screenshot to JPEG to reduce token usage for the VLM.
+
+    Args:
+        png_bytes: Raw PNG image bytes.
+        quality: JPEG quality (1-100). Lower = smaller but lossier.
+
+    Returns:
+        JPEG image bytes.
+    """
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+        # Downscale to 640px wide if larger — halves tokens for the VLM
+        if img.width > 640:
+            ratio = 640 / img.width
+            img = img.resize((640, int(img.height * ratio)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        return buf.getvalue()
+    except ImportError:
+        logger.debug("Pillow not installed, sending raw PNG to VLM")
+        return png_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -223,8 +290,21 @@ def parse_vlm_response(raw_response: str) -> dict:
     # --- Strategy 5: Keyword-based fallback from natural language ---
     text_lower = text.lower()
 
+    # Detect if VLM is describing a select/dropdown action in natural language
+    select_match = re.search(
+        r"(?:select|choose|pick|change).*?(?:option|dropdown|filter|value).*?\[?(\d+)\]?", text_lower
+    )
+    if select_match:
+        element_id = int(select_match.group(1))
+        # Try to extract the value to select
+        value_match = re.search(r"[\"']([^\"']+)[\"']", text)
+        value = value_match.group(1) if value_match else ""
+        if value:
+            logger.info("Recovered select action from natural language: element_id=%d, value='%s'", element_id, value)
+            return {"action": "select", "element_id": element_id, "value": value, "thought": f"(recovered from text) {text[:100]}"}
+
     # Detect if VLM is describing a click action in natural language
-    click_match = re.search(r"(?:click|press|tap|select).*?(?:element|button|link)?\s*\[?(\d+)\]?", text_lower)
+    click_match = re.search(r"(?:click|press|tap).*?(?:element|button|link)?\s*\[?(\d+)\]?", text_lower)
     if click_match:
         element_id = int(click_match.group(1))
         logger.info("Recovered click action from natural language: element_id=%d", element_id)
@@ -325,7 +405,7 @@ class PeruseAgent:
 
         # Initialize VLM
         try:
-            self._vlm = create_vlm(self.config)
+            self._vlm = create_vlm(self.config, json_mode=True)
         except Exception as e:
             result.error = f"Failed to initialize VLM: {e}"
             logger.error(result.error)
@@ -339,6 +419,8 @@ class PeruseAgent:
             step_history: list[dict] = []
             consecutive_parse_failures = 0
             max_parse_failures = 5  # Stop after this many consecutive parse failures
+            recent_actions: list[str] = []  # Track action signatures for loop detection
+            max_repeated_actions = 3  # Stop after this many identical consecutive actions
 
             for step_num in range(1, self.config.max_steps + 1):
                 logger.info("=== Step %d / %d ===", step_num, self.config.max_steps)
@@ -369,6 +451,23 @@ class PeruseAgent:
                             break
                     else:
                         consecutive_parse_failures = 0  # Reset on successful parse
+
+                    # --- Loop detection ---
+                    action_sig = _action_signature(step.parsed_action)
+                    recent_actions.append(action_sig)
+                    if len(recent_actions) >= max_repeated_actions:
+                        tail = recent_actions[-max_repeated_actions:]
+                        if len(set(tail)) == 1:
+                            logger.warning(
+                                "Loop detected: action '%s' repeated %d times. Stopping.",
+                                action_sig, max_repeated_actions,
+                            )
+                            result.completed = True
+                            result.final_summary = (
+                                f"Agent stopped: repeated the same action ({action_sig}) "
+                                f"{max_repeated_actions} times. Likely stuck in a loop."
+                            )
+                            break
 
                     # Track history for VLM context
                     step_history.append({
@@ -416,10 +515,12 @@ class PeruseAgent:
             An AgentStep record.
         """
         # 1. PERCEIVE
-        perception = await perceive(page, monitor)
+        perception = await perceive(page, monitor, max_dom_elements=self.config.max_dom_elements)
 
         # 2. PLAN — send perception to VLM
-        screenshot_b64 = encode_image_b64(perception.screenshot)
+        screenshot_b64 = encode_image_b64(
+            _compress_screenshot(perception.screenshot, quality=self.config.screenshot_quality)
+        )
         messages = build_vision_prompt(
             screenshot_b64=screenshot_b64,
             dom_text=perception.dom_text,

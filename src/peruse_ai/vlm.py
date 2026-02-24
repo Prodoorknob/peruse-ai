@@ -31,21 +31,23 @@ IMPORTANT: Your ENTIRE response must be a single JSON object. No explanation bef
 Available actions:
 - Click an element: {"thought": "why", "action": "click", "element_id": 5}
 - Type text: {"thought": "why", "action": "type", "element_id": 3, "text": "hello"}
+- Select a dropdown option: {"thought": "why", "action": "select", "element_id": 7, "value": "February 2026"}
 - Scroll the page: {"thought": "why", "action": "scroll", "direction": "down"}
 - Go to a URL: {"thought": "why", "action": "navigate", "url": "https://example.com"}
 - Wait for loading: {"thought": "why", "action": "wait", "seconds": 3}
 - Task is finished: {"thought": "why", "action": "done", "summary": "what was accomplished"}
 
-Example response (click a search button that is element 12):
+Examples:
 {"thought": "I need to click the search button to find results", "action": "click", "element_id": 12}
-
-Example response (scroll down to see more content):
 {"thought": "I need to scroll down to see more data", "action": "scroll", "direction": "down"}
+{"thought": "I need to filter by February 2026 using the month dropdown", "action": "select", "element_id": 7, "value": "February 2026"}
 
 Rules:
 - Output ONLY the JSON object, nothing else
 - Always include both "thought" and "action" keys
 - Use "done" ONLY when the task is fully complete
+- For <select> dropdowns (shown with options=[...] in the DOM), use "select" with "value" matching one of the listed options
+- Do NOT click or scroll to interact with a <select> dropdown — use the "select" action instead
 - If unsure what to do, scroll down to discover more content
 """
 
@@ -68,8 +70,13 @@ Output a Markdown report with specific, actionable suggestions.
 # ---------------------------------------------------------------------------
 
 
-def create_vlm(config: PeruseConfig) -> BaseChatModel:
+def create_vlm(config: PeruseConfig, json_mode: bool = False) -> BaseChatModel:
     """Create a LangChain-compatible chat model for the configured VLM backend.
+
+    Args:
+        config: PeruseConfig instance.
+        json_mode: If True, constrain output to valid JSON (for agent loop).
+            Leave False for free-form text output (reports, analysis).
 
     Returns:
         A BaseChatModel instance ready for .invoke() calls.
@@ -79,7 +86,7 @@ def create_vlm(config: PeruseConfig) -> BaseChatModel:
         ConnectionError: If the backend is unreachable.
     """
     if config.vlm_backend == VLMBackend.OLLAMA:
-        return _create_ollama_vlm(config)
+        return _create_ollama_vlm(config, json_mode=json_mode)
     elif config.vlm_backend == VLMBackend.LMSTUDIO:
         return _create_lmstudio_vlm(config)
     elif config.vlm_backend == VLMBackend.OPENAI_COMPAT:
@@ -90,18 +97,22 @@ def create_vlm(config: PeruseConfig) -> BaseChatModel:
         raise ValueError(f"Unsupported VLM backend: {config.vlm_backend}")
 
 
-def _create_ollama_vlm(config: PeruseConfig) -> BaseChatModel:
+def _create_ollama_vlm(config: PeruseConfig, json_mode: bool = False) -> BaseChatModel:
     """Create an Ollama-backed VLM via LangChain's ChatOllama."""
     from langchain_ollama import ChatOllama
 
-    logger.info("Initializing Ollama VLM: model=%s, base_url=%s", config.vlm_model, config.vlm_base_url)
-    return ChatOllama(
+    logger.info("Initializing Ollama VLM: model=%s, base_url=%s, json_mode=%s",
+                config.vlm_model, config.vlm_base_url, json_mode)
+    kwargs = dict(
         model=config.vlm_model,
         base_url=config.get_ollama_base_url(),
         temperature=config.vlm_temperature,
         timeout=config.vlm_timeout,
         num_ctx=config.vlm_num_ctx,
     )
+    if json_mode:
+        kwargs["format"] = "json"
+    return ChatOllama(**kwargs)
 
 
 def _create_lmstudio_vlm(config: PeruseConfig) -> BaseChatModel:
@@ -201,11 +212,11 @@ def build_vision_prompt(
     # DOM
     content_blocks.append({"type": "text", "text": f"## Interactive DOM Elements\n```\n{dom_text}\n```\n"})
 
-    # Screenshot
+    # Screenshot (accepts both PNG and JPEG; agent compresses to JPEG)
     content_blocks.append(
         {
             "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"},
+            "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"},
         }
     )
 
