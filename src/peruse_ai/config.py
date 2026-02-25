@@ -72,6 +72,17 @@ class PeruseConfig(BaseSettings):
         default=8192,
         description="Context window size (tokens) for local VLMs like Ollama. Smaller values speed up inference.",
     )
+    vlm_retries: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description="Number of retry attempts if the VLM backend crashes (e.g. Vulkan/IPEX-LLM instability).",
+    )
+    vlm_cooldown: float = Field(
+        default=3.0,
+        ge=0.0,
+        description="Seconds to wait before retrying after a VLM crash. Gives the GPU time to recover.",
+    )
 
     # --- Browser Settings ---
     headless: bool = Field(

@@ -1,6 +1,6 @@
 # Peruse-AI
 
-**A local-first universal web agent** that autonomously explores web applications and produces structured reports, powered by [browser-use](https://github.com/browser-use/browser-use), [Playwright](https://playwright.dev/python/), and a local Vision-Language Model (Qwen2.5-VL via Ollama).
+**A local-first universal web agent** that autonomously explores web applications and produces structured reports, powered by [Playwright](https://playwright.dev/python/) and a local Vision-Language Model (e.g. Qwen, Gemma via Ollama, LM Studio, or Jina VLM).
 
 ---
 
@@ -73,12 +73,38 @@ All settings can be passed via constructor, environment variables (`PERUSE_*`), 
 
 | Setting | Env Var | Default | Description |
 |---|---|---|---|
-| `vlm_backend` | `PERUSE_VLM_BACKEND` | `"ollama"` | `"ollama"`, `"lmstudio"`, or `"openai_compat"` |
-| `vlm_model` | `PERUSE_VLM_MODEL` | `"qwen2.5-vl:7b"` | Model identifier |
+| `vlm_backend` | `PERUSE_VLM_BACKEND` | `"ollama"` | `"ollama"`, `"lmstudio"`, `"openai_compat"`, or `"jina"` |
+| `vlm_model` | `PERUSE_VLM_MODEL` | `"qwen3-vl:6b"` | Model identifier |
 | `vlm_base_url` | `PERUSE_VLM_BASE_URL` | `"http://localhost:11434"` | API endpoint |
+| `vlm_num_ctx` | `PERUSE_VLM_NUM_CTX` | `8192` | Context window size (tokens) for Ollama |
+| `vlm_retries` | `PERUSE_VLM_RETRIES` | `2` | Retry attempts on VLM crash |
+| `vlm_cooldown` | `PERUSE_VLM_COOLDOWN` | `3.0` | Seconds to wait before retry |
 | `headless` | `PERUSE_HEADLESS` | `True` | Run browser headless |
 | `max_steps` | `PERUSE_MAX_STEPS` | `50` | Max agent loop iterations |
+| `max_dom_elements` | `PERUSE_MAX_DOM_ELEMENTS` | `100` | Max DOM elements per step (0 = unlimited) |
 | `output_dir` | `PERUSE_OUTPUT_DIR` | `"./peruse_output"` | Report output directory |
+
+---
+
+## ⚠️ Intel ARC GPU (Vulkan / IPEX-LLM)
+
+Peruse-AI can run on Intel ARC GPUs via the [IPEX-LLM](https://github.com/intel-analytics/ipex-llm) project, but this backend is **experimental and unstable**. The Ollama model runner frequently crashes with:
+
+```
+model runner has unexpectedly stopped, this may be due to resource limitations
+or an internal error (status code: 500)
+```
+
+**Known issues:**
+- The Vulkan backend crashes when receiving rapid back-to-back VLM calls
+- Shader compilation on first run can cause startup timeouts
+- Large context windows (`vlm_num_ctx` > 8192) may exhaust GPU memory
+
+**Workarounds:**
+1. **Warm up the model first** — Run `ollama run gemma3:4b "hello"` in your terminal before using `peruse run`. This pre-compiles shaders and loads the model into VRAM.
+2. **Use a smaller context window** — Keep `vlm_num_ctx` at `4096` or `8192`.
+3. **Increase retries** — Set `vlm_retries=3` and `vlm_cooldown=5.0` to give the GPU time to recover between crashes.
+4. **Prefer NVIDIA/CUDA** — If available, an NVIDIA GPU with the standard Ollama build is significantly more stable.
 
 ---
 
@@ -90,6 +116,15 @@ cd peruse-ai
 pip install -e ".[dev]"
 playwright install chromium
 pytest tests/ -v
+```
+
+To use the **Jina VLM** cloud backend, set your API key:
+```bash
+# .env file
+PERUSE_VLM_API_KEY=jina_xxxxxxxxxxxx
+```
+```bash
+peruse run --url "https://example.com" --task "Explore" --backend jina
 ```
 
 ---

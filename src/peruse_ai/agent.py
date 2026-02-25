@@ -6,6 +6,7 @@ Main agent loop: perceive → plan → act, orchestrating browser, VLM, and perc
 
 from __future__ import annotations
 
+import asyncio
 import json
 import io
 import logging
@@ -529,7 +530,7 @@ class PeruseAgent:
         )
 
         logger.info("Sending perception to VLM (DOM elements: %d)...", len(perception.dom_elements))
-        response = await self._vlm.ainvoke(messages)
+        response = await self._vlm_invoke_with_retry(messages)
         raw_response = response.content
         logger.debug("VLM response: %s", raw_response[:300])
 
@@ -547,3 +548,34 @@ class PeruseAgent:
             parsed_action=parsed,
             thought=thought,
         )
+
+    async def _vlm_invoke_with_retry(self, messages: list) -> Any:
+        """Invoke the VLM with automatic retry and cooldown on crash.
+
+        Handles transient failures from unstable GPU backends (e.g. IPEX-LLM
+        Vulkan on Intel ARC) by retrying with exponential backoff.
+        """
+        last_error = None
+        for attempt in range(1 + self.config.vlm_retries):
+            try:
+                return await self._vlm.ainvoke(messages)
+            except Exception as e:
+                last_error = e
+                if attempt < self.config.vlm_retries:
+                    cooldown = self.config.vlm_cooldown * (attempt + 1)
+                    logger.warning(
+                        "VLM call failed (attempt %d/%d): %s. "
+                        "Retrying in %.1fs...",
+                        attempt + 1,
+                        1 + self.config.vlm_retries,
+                        str(e)[:200],
+                        cooldown,
+                    )
+                    await asyncio.sleep(cooldown)
+                else:
+                    logger.error(
+                        "VLM call failed after %d attempts: %s",
+                        1 + self.config.vlm_retries,
+                        str(e)[:200],
+                    )
+        raise last_error

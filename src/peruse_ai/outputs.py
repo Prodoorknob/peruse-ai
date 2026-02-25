@@ -6,6 +6,7 @@ Multi-output generators that post-process an AgentResult into Markdown reports.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 from datetime import datetime, timezone
@@ -25,6 +26,41 @@ if TYPE_CHECKING:
     from peruse_ai.agent import AgentResult
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Retry helper for unstable GPU backends
+# ---------------------------------------------------------------------------
+
+MAX_VLM_REPORT_RETRIES = 3
+VLM_REPORT_COOLDOWN = 5.0  # seconds
+
+
+async def _vlm_invoke_with_retry(vlm: BaseChatModel, messages: list) -> str:
+    """Invoke the VLM with retry logic for report generation.
+
+    Handles transient crashes from unstable GPU backends (e.g. IPEX-LLM
+    Vulkan on Intel ARC) by retrying with escalating cooldowns.
+
+    Returns:
+        The VLM response content as a stripped string, or empty string on failure.
+    """
+    for attempt in range(MAX_VLM_REPORT_RETRIES):
+        try:
+            response = await vlm.ainvoke(messages)
+            content = response.content.strip()
+            if content:
+                return content
+            logger.warning("VLM returned empty response (attempt %d/%d)", attempt + 1, MAX_VLM_REPORT_RETRIES)
+        except Exception as e:
+            logger.error("VLM report call failed (attempt %d/%d): %s", attempt + 1, MAX_VLM_REPORT_RETRIES, str(e)[:200])
+
+        if attempt < MAX_VLM_REPORT_RETRIES - 1:
+            cooldown = VLM_REPORT_COOLDOWN * (attempt + 1)
+            logger.info("Retrying VLM call in %.0fs...", cooldown)
+            await asyncio.sleep(cooldown)
+
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -65,15 +101,10 @@ async def generate_data_insights(result: AgentResult, vlm: BaseChatModel) -> str
     )
 
     logger.info("Generating data insights from %d screenshots...", len(screenshots))
-    try:
-        response = await vlm.ainvoke(messages)
-        report = response.content.strip()
-    except Exception as e:
-        logger.error("Failed to generate data insights: %s", e)
-        report = ""
+    report = await _vlm_invoke_with_retry(vlm, messages)
 
     if not report:
-        report = "> ⚠️ **Warning:** The VLM returned an empty response or encountered an error. This typically happens when the prompt length (number of images) exceeds the model's configured context window limit (`num_ctx`). Try increasing `vlm_num_ctx` in the configuration.\n"
+        report = "> \u26a0\ufe0f **Warning:** The VLM returned an empty response or crashed. This may be caused by GPU memory limits, context window overflow, or an unstable backend (e.g. Vulkan/IPEX-LLM). Try reducing `max_count` in screenshots or restarting the Ollama server.\n"
 
     # Wrap with header
     header = (
@@ -119,15 +150,10 @@ async def generate_ux_review(result: AgentResult, vlm: BaseChatModel) -> str:
     )
 
     logger.info("Generating UX review from %d screenshots...", len(screenshots))
-    try:
-        response = await vlm.ainvoke(messages)
-        report = response.content.strip()
-    except Exception as e:
-        logger.error("Failed to generate UX review: %s", e)
-        report = ""
+    report = await _vlm_invoke_with_retry(vlm, messages)
 
     if not report:
-        report = "> ⚠️ **Warning:** The VLM returned an empty response or encountered an error. This typically happens when the prompt length (number of images) exceeds the model's configured context window limit (`num_ctx`). Try increasing `vlm_num_ctx` in the configuration.\n"
+        report = "> \u26a0\ufe0f **Warning:** The VLM returned an empty response or crashed. This may be caused by GPU memory limits, context window overflow, or an unstable backend (e.g. Vulkan/IPEX-LLM). Try reducing `max_count` in screenshots or restarting the Ollama server.\n"
 
     header = (
         f"# 🎨 UX/UI Review Report\n\n"
@@ -266,6 +292,11 @@ async def save_outputs(
             insights_path.write_text(insights, encoding="utf-8")
             saved["insights"] = insights_path
             logger.info("Data insights saved to %s", insights_path)
+
+            # Cooldown between VLM calls — prevents Vulkan/IPEX-LLM runner crash
+            if generate_ux:
+                logger.info("Cooling down 5s before next VLM report call...")
+                await asyncio.sleep(5)
 
         if generate_ux:
             ux_review = await generate_ux_review(result, vlm)
