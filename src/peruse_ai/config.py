@@ -69,7 +69,7 @@ class PeruseConfig(BaseSettings):
         description="Timeout in seconds for a single VLM inference call.",
     )
     vlm_num_ctx: int = Field(
-        default=8192,
+        default=32768,
         description="Context window size (tokens) for local VLMs like Ollama. Smaller values speed up inference.",
     )
     vlm_retries: int = Field(

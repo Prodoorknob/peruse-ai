@@ -421,7 +421,7 @@ class PeruseAgent:
             consecutive_parse_failures = 0
             max_parse_failures = 5  # Stop after this many consecutive parse failures
             recent_actions: list[str] = []  # Track action signatures for loop detection
-            max_repeated_actions = 3  # Stop after this many identical consecutive actions
+            max_repeated_actions = 7  # Stop after this many identical consecutive actions
 
             for step_num in range(1, self.config.max_steps + 1):
                 logger.info("=== Step %d / %d ===", step_num, self.config.max_steps)
@@ -527,6 +527,7 @@ class PeruseAgent:
             dom_text=perception.dom_text,
             task=self.task,
             step_history=step_history,
+            page_meta=perception.page_meta,
         )
 
         logger.info("Sending perception to VLM (DOM elements: %d)...", len(perception.dom_elements))

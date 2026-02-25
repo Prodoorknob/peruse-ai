@@ -45,9 +45,12 @@ Examples:
 Rules:
 - Output ONLY the JSON object, nothing else
 - Always include both "thought" and "action" keys
-- Use "done" ONLY when the task is fully complete
 - For <select> dropdowns (shown with options=[...] in the DOM), use "select" with "value" matching one of the listed options
 - Do NOT click or scroll to interact with a <select> dropdown — use the "select" action instead
+- BEFORE declaring "done", scroll down to see the FULL page — there may be charts, tables, or data below the visible area. Check the Page Info scroll percentage: if it is not near 100%, scroll down first
+- If the page has navigation tabs or links (e.g. "Crops", "Reports", "Details") that are relevant to the task, click them to explore those sections too
+- Setting filters alone is NOT completing a task — you must also view and capture the resulting data, charts, and visualizations
+- Use "done" ONLY when you have thoroughly explored the page content and any relevant sub-pages
 - If unsure what to do, scroll down to discover more content
 """
 
@@ -181,6 +184,7 @@ def build_vision_prompt(
     dom_text: str,
     task: str,
     step_history: list[dict] | None = None,
+    page_meta: dict | None = None,
 ) -> list:
     """Build a multi-modal prompt with screenshot + DOM for the agent loop.
 
@@ -189,6 +193,7 @@ def build_vision_prompt(
         dom_text: Simplified DOM text with indexed interactive elements.
         task: The user's high-level goal.
         step_history: Optional list of previous step summaries.
+        page_meta: Optional page metadata (title, URL, scroll position).
 
     Returns:
         A list of LangChain message objects ready for model.invoke().
@@ -208,6 +213,20 @@ def build_vision_prompt(
 
     # Task
     content_blocks.append({"type": "text", "text": f"## Task\n{task}\n"})
+
+    # Page context (scroll position tells VLM if there's more content below)
+    if page_meta:
+        scroll_top = page_meta.get("scrollTop", 0)
+        scroll_height = page_meta.get("scrollHeight", 0)
+        client_height = page_meta.get("clientHeight", 0)
+        title = page_meta.get("title", "")
+        url = page_meta.get("url", "")
+        if scroll_height > client_height:
+            scroll_pct = int(scroll_top / (scroll_height - client_height) * 100) if (scroll_height - client_height) > 0 else 0
+            page_info = f"Page: \"{title}\" | URL: {url} | Scroll: {scroll_pct}% (viewport {client_height}px of {scroll_height}px total)"
+        else:
+            page_info = f"Page: \"{title}\" | URL: {url} | No scrollable content"
+        content_blocks.append({"type": "text", "text": f"## Page Info\n{page_info}\n"})
 
     # DOM
     content_blocks.append({"type": "text", "text": f"## Interactive DOM Elements\n```\n{dom_text}\n```\n"})
@@ -254,7 +273,7 @@ def build_analysis_prompt(
         content_blocks.append(
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+                "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
             }
         )
 

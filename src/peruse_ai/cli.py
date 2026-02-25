@@ -34,6 +34,30 @@ def _setup_logging(verbose: bool) -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
+VALID_REPORTS = {"insights", "ux", "bugs", "all"}
+
+
+def _parse_reports(reports_str: str) -> tuple[bool, bool, bool]:
+    """Parse the --reports option into boolean flags.
+
+    Args:
+        reports_str: Comma-separated report names (e.g. "insights,bugs").
+
+    Returns:
+        Tuple of (generate_insights, generate_ux, generate_bugs).
+    """
+    requested = {r.strip().lower() for r in reports_str.split(",")}
+    invalid = requested - VALID_REPORTS
+    if invalid:
+        raise click.BadParameter(
+            f"Unknown report type(s): {', '.join(sorted(invalid))}. "
+            f"Valid options: {', '.join(sorted(VALID_REPORTS))}"
+        )
+    if "all" in requested:
+        return True, True, True
+    return "insights" in requested, "ux" in requested, "bugs" in requested
+
+
 # ---------------------------------------------------------------------------
 # CLI Group
 # ---------------------------------------------------------------------------
@@ -60,14 +84,18 @@ def main():
 @click.option("--output", default="./peruse_output", help="Output directory for reports.", type=click.Path())
 @click.option("--max-steps", default=50, help="Maximum agent loop iterations.", type=int)
 @click.option("--headless/--no-headless", default=True, help="Run browser headless.")
+@click.option("--reports", default="all", help="Comma-separated reports to generate: insights, ux, bugs, all.")
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
-def run(url, task, model, backend, base_url, output, max_steps, headless, verbose):
+def run(url, task, model, backend, base_url, output, max_steps, headless, reports, verbose):
     """Run a full exploration session and generate all reports."""
     _setup_logging(verbose)
-    asyncio.run(_run_agent(url, task, model, backend, base_url, output, max_steps, headless))
+    gen_insights, gen_ux, gen_bugs = _parse_reports(reports)
+    asyncio.run(_run_agent(url, task, model, backend, base_url, output, max_steps, headless,
+                           gen_insights, gen_ux, gen_bugs))
 
 
-async def _run_agent(url, task, model, backend, base_url, output, max_steps, headless):
+async def _run_agent(url, task, model, backend, base_url, output, max_steps, headless,
+                     gen_insights, gen_ux, gen_bugs):
     """Internal async handler for the run command."""
     from peruse_ai.agent import PeruseAgent
     from peruse_ai.config import PeruseConfig, VLMBackend
@@ -130,8 +158,12 @@ async def _run_agent(url, task, model, backend, base_url, output, max_steps, hea
 
     # Generate outputs
     console.print("\n[bold]Generating reports...[/bold]")
-    vlm = create_vlm(config)
-    saved = await save_outputs(result, config.output_dir, vlm=vlm)
+    needs_vlm = gen_insights or gen_ux
+    vlm = create_vlm(config) if needs_vlm else None
+    saved = await save_outputs(
+        result, config.output_dir, vlm=vlm,
+        generate_insights=gen_insights, generate_ux=gen_ux, generate_bugs=gen_bugs,
+    )
 
     console.print(Panel.fit(
         "\n".join(f"  📄 {name}: {path}" for name, path in saved.items()),

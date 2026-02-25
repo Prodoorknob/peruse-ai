@@ -85,6 +85,7 @@ async def generate_data_insights(result: AgentResult, vlm: BaseChatModel) -> str
 
     # Use a sample of unique screenshots — dedup removes near-identical frames
     screenshots = _sample_screenshots(result.screenshots, max_count=10)
+    screenshots = [_compress_for_report(s) for s in screenshots]
     screenshots_b64 = [encode_image_b64(s) for s in screenshots]
 
     context = (
@@ -135,6 +136,7 @@ async def generate_ux_review(result: AgentResult, vlm: BaseChatModel) -> str:
         return "# UX/UI Review\n\nNo screenshots were captured during the session.\n"
 
     screenshots = _sample_screenshots(result.screenshots, max_count=8)
+    screenshots = [_compress_for_report(s) for s in screenshots]
     screenshots_b64 = [encode_image_b64(s) for s in screenshots]
 
     context = (
@@ -287,11 +289,14 @@ async def save_outputs(
     # VLM-powered reports
     if vlm:
         if generate_insights:
-            insights = await generate_data_insights(result, vlm)
-            insights_path = output_dir / f"data_insights_{model_name}_{ts}.md"
-            insights_path.write_text(insights, encoding="utf-8")
-            saved["insights"] = insights_path
-            logger.info("Data insights saved to %s", insights_path)
+            try:
+                insights = await generate_data_insights(result, vlm)
+                insights_path = output_dir / f"data_insights_{model_name}_{ts}.md"
+                insights_path.write_text(insights, encoding="utf-8")
+                saved["insights"] = insights_path
+                logger.info("Data insights saved to %s", insights_path)
+            except Exception as e:
+                logger.error("Failed to generate data insights report: %s", str(e)[:200])
 
             # Cooldown between VLM calls — prevents Vulkan/IPEX-LLM runner crash
             if generate_ux:
@@ -299,11 +304,14 @@ async def save_outputs(
                 await asyncio.sleep(5)
 
         if generate_ux:
-            ux_review = await generate_ux_review(result, vlm)
-            ux_path = output_dir / f"ux_review_{model_name}_{ts}.md"
-            ux_path.write_text(ux_review, encoding="utf-8")
-            saved["ux"] = ux_path
-            logger.info("UX review saved to %s", ux_path)
+            try:
+                ux_review = await generate_ux_review(result, vlm)
+                ux_path = output_dir / f"ux_review_{model_name}_{ts}.md"
+                ux_path.write_text(ux_review, encoding="utf-8")
+                saved["ux"] = ux_path
+                logger.info("UX review saved to %s", ux_path)
+            except Exception as e:
+                logger.error("Failed to generate UX review report: %s", str(e)[:200])
 
     return saved
 
@@ -311,6 +319,35 @@ async def save_outputs(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _compress_for_report(png_bytes: bytes, max_width: int = 1024, quality: int = 85) -> bytes:
+    """Compress a PNG screenshot to JPEG for report generation.
+
+    Uses higher quality than the agent loop (which uses 640px/q60) since
+    report analysis needs to read charts and text. But still much smaller
+    than the raw 1280x720 PNG, which can overflow the VLM context window.
+
+    Args:
+        png_bytes: Raw PNG image bytes.
+        max_width: Maximum width in pixels (downscaled proportionally).
+        quality: JPEG quality (1-100).
+
+    Returns:
+        JPEG image bytes, or original PNG if Pillow is unavailable.
+    """
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+        if img.width > max_width:
+            ratio = max_width / img.width
+            img = img.resize((max_width, int(img.height * ratio)), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        return buf.getvalue()
+    except ImportError:
+        return png_bytes
 
 
 def _sample_screenshots(screenshots: list[bytes], max_count: int = 5) -> list[bytes]:
