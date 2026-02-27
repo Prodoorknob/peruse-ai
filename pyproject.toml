@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling<1.21"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,7 +7,7 @@ name = "peruse-ai"
 version = "0.1.0"
 description = "A local-first universal web agent that autonomously explores web apps using browser-use, Playwright, and a local Vision-Language Model."
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
     { name = "rvedire", email = "rajashekarreddy091@gmail.com" },

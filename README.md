@@ -1,5 +1,10 @@
 # Peruse-AI
 
+[![PyPI version](https://img.shields.io/pypi/v/peruse-ai.svg)](https://pypi.org/project/peruse-ai/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/peruse-ai.svg)](https://pypi.org/project/peruse-ai/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Prodoorknob/peruse-ai/blob/master/LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-Prodoorknob%2Fperuse--ai-blue?logo=github)](https://github.com/Prodoorknob/peruse-ai)
+
 **A local-first universal web agent** that autonomously explores web applications and produces structured reports, powered by [Playwright](https://playwright.dev/python/) and a local Vision-Language Model (e.g. Qwen, Gemma via Ollama, LM Studio, or Jina VLM).
 
 ---
