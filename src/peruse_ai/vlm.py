@@ -185,6 +185,9 @@ def build_vision_prompt(
     task: str,
     step_history: list[dict] | None = None,
     page_meta: dict | None = None,
+    persona: str = "",
+    extra_instructions: str = "",
+    nudge: str | None = None,
 ) -> list:
     """Build a multi-modal prompt with screenshot + DOM for the agent loop.
 
@@ -194,11 +197,21 @@ def build_vision_prompt(
         task: The user's high-level goal.
         step_history: Optional list of previous step summaries.
         page_meta: Optional page metadata (title, URL, scroll position).
+        persona: Optional persona prepended to the system prompt.
+        extra_instructions: Optional additional instructions appended to the system prompt.
+        nudge: Optional nudge message injected when the agent appears stuck.
 
     Returns:
         A list of LangChain message objects ready for model.invoke().
     """
-    messages = [SystemMessage(content=AGENT_SYSTEM_PROMPT)]
+    # Build the system prompt with optional persona prefix and extra instructions suffix
+    system_content = ""
+    if persona:
+        system_content = f"You are {persona}. "
+    system_content += AGENT_SYSTEM_PROMPT
+    if extra_instructions:
+        system_content += f"\n\nAdditional Instructions:\n{extra_instructions}"
+    messages = [SystemMessage(content=system_content)]
 
     # Build the human message content blocks
     content_blocks = []
@@ -210,6 +223,10 @@ def build_vision_prompt(
             for i, step in enumerate(step_history[-10:])  # last 10 steps
         )
         content_blocks.append({"type": "text", "text": f"## Previous Steps\n{history_text}\n"})
+
+    # Nudge message (injected when agent appears stuck)
+    if nudge:
+        content_blocks.append({"type": "text", "text": f"## IMPORTANT NOTICE\n{nudge}\n"})
 
     # Task
     content_blocks.append({"type": "text", "text": f"## Task\n{task}\n"})

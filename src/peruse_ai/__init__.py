@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from peruse_ai.agent import AgentResult, AgentStep, PeruseAgent
 from peruse_ai.config import PeruseConfig, VLMBackend
+from peruse_ai.focus_group import FocusGroup, FocusGroupResult
 from peruse_ai.outputs import (
     generate_bug_report,
     generate_data_insights,
@@ -25,6 +26,9 @@ __all__ = [
     "PeruseAgent",
     "PeruseConfig",
     "VLMBackend",
+    # Focus Group
+    "FocusGroup",
+    "FocusGroupResult",
     # Results
     "AgentResult",
     "AgentStep",

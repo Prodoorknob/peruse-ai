@@ -111,6 +111,25 @@ class PeruseConfig(BaseSettings):
         le=100,
         description="JPEG quality for saved screenshots (10-100).",
     )
+    extra_instructions: str = Field(
+        default="",
+        description="Additional instructions appended to the agent system prompt. "
+        "Use this to add domain-specific guidance without altering the base prompt's JSON format rules.",
+    )
+    persona: str = Field(
+        default="",
+        description="Agent persona prepended to the system prompt. "
+        "Example: 'an extremely experienced AD for a prestigious american sports focused university'. "
+        "When set, the prompt begins with 'You are [persona]. ' before the base web browsing agent prompt.",
+    )
+    max_nudges: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description="Maximum number of nudge messages before the agent hard-stops. "
+        "When the agent repeats the same action or has consecutive parse failures, "
+        "it receives a nudge to try something different instead of immediately stopping.",
+    )
 
     # --- Output Settings ---
     output_dir: Path = Field(

@@ -419,9 +419,11 @@ class PeruseAgent:
 
             step_history: list[dict] = []
             consecutive_parse_failures = 0
-            max_parse_failures = 5  # Stop after this many consecutive parse failures
+            max_parse_failures = 5  # Threshold before issuing a parse-failure nudge
             recent_actions: list[str] = []  # Track action signatures for loop detection
-            max_repeated_actions = 7  # Stop after this many identical consecutive actions
+            max_repeated_actions = 7  # Threshold before issuing a loop nudge
+            nudge_count = 0  # Total nudges sent (shared between loop and parse nudges)
+            pending_nudge: str | None = None  # Nudge to inject in the next step
 
             for step_num in range(1, self.config.max_steps + 1):
                 logger.info("=== Step %d / %d ===", step_num, self.config.max_steps)
@@ -432,7 +434,9 @@ class PeruseAgent:
                         monitor=monitor,
                         step_num=step_num,
                         step_history=step_history,
+                        nudge=pending_nudge,
                     )
+                    pending_nudge = None  # Consume the nudge after it's been sent
                     result.steps.append(step)
 
                     # Track parse failures
@@ -444,31 +448,59 @@ class PeruseAgent:
                             max_parse_failures,
                         )
                         if consecutive_parse_failures >= max_parse_failures:
-                            result.error = (
-                                f"Stopped after {max_parse_failures} consecutive VLM parse failures. "
-                                "The model may not support structured JSON output well."
-                            )
-                            logger.error(result.error)
-                            break
+                            nudge_count += 1
+                            if nudge_count > self.config.max_nudges:
+                                result.error = (
+                                    f"Stopped after {max_parse_failures} consecutive VLM parse failures "
+                                    f"and {nudge_count - 1} nudge(s). "
+                                    "The model may not support structured JSON output well."
+                                )
+                                logger.error(result.error)
+                                break
+                            else:
+                                logger.info(
+                                    "Parse failure threshold reached (nudge %d/%d). Nudging agent for proper JSON.",
+                                    nudge_count, self.config.max_nudges,
+                                )
+                                pending_nudge = (
+                                    "Your recent responses could not be parsed as valid JSON. "
+                                    "Remember: your ENTIRE response must be a single JSON object with no text before "
+                                    'or after it. Example: {"thought": "...", "action": "scroll", "direction": "down"}'
+                                )
+                                consecutive_parse_failures = 0  # Reset counter after nudge
                     else:
                         consecutive_parse_failures = 0  # Reset on successful parse
 
-                    # --- Loop detection ---
+                    # --- Loop detection with nudge ---
                     action_sig = _action_signature(step.parsed_action)
                     recent_actions.append(action_sig)
                     if len(recent_actions) >= max_repeated_actions:
                         tail = recent_actions[-max_repeated_actions:]
                         if len(set(tail)) == 1:
-                            logger.warning(
-                                "Loop detected: action '%s' repeated %d times. Stopping.",
-                                action_sig, max_repeated_actions,
-                            )
-                            result.completed = True
-                            result.final_summary = (
-                                f"Agent stopped: repeated the same action ({action_sig}) "
-                                f"{max_repeated_actions} times. Likely stuck in a loop."
-                            )
-                            break
+                            nudge_count += 1
+                            if nudge_count > self.config.max_nudges:
+                                logger.warning(
+                                    "Loop detected after %d nudges: action '%s' repeated %d times. Stopping.",
+                                    nudge_count - 1, action_sig, max_repeated_actions,
+                                )
+                                result.completed = True
+                                result.final_summary = (
+                                    f"Agent stopped: repeated the same action ({action_sig}) "
+                                    f"despite {nudge_count - 1} nudge(s). Likely stuck in a loop."
+                                )
+                                break
+                            else:
+                                logger.info(
+                                    "Loop detected (nudge %d/%d): action '%s' repeated %d times. Nudging agent.",
+                                    nudge_count, self.config.max_nudges, action_sig, max_repeated_actions,
+                                )
+                                pending_nudge = (
+                                    "You have been repeating the same action multiple times without making progress. "
+                                    "Try a completely different approach: click a different element, scroll to a new "
+                                    "section, navigate to a different page, or if you have gathered enough information, "
+                                    "use the 'done' action to finish."
+                                )
+                                recent_actions.clear()  # Reset to give agent a fresh window
 
                     # Track history for VLM context
                     step_history.append({
@@ -503,6 +535,7 @@ class PeruseAgent:
         monitor: ErrorMonitor,
         step_num: int,
         step_history: list[dict],
+        nudge: str | None = None,
     ) -> AgentStep:
         """Execute a single perceive → plan → act cycle.
 
@@ -511,6 +544,7 @@ class PeruseAgent:
             monitor: The ErrorMonitor instance.
             step_num: Current step number.
             step_history: History of previous steps for VLM context.
+            nudge: Optional nudge message injected when the agent appears stuck.
 
         Returns:
             An AgentStep record.
@@ -528,6 +562,9 @@ class PeruseAgent:
             task=self.task,
             step_history=step_history,
             page_meta=perception.page_meta,
+            persona=self.config.persona,
+            extra_instructions=self.config.extra_instructions,
+            nudge=nudge,
         )
 
         logger.info("Sending perception to VLM (DOM elements: %d)...", len(perception.dom_elements))
