@@ -136,6 +136,13 @@ class PeruseConfig(BaseSettings):
         default=Path("./peruse_output"),
         description="Directory where reports and screenshots are saved.",
     )
+    max_report_screenshots: int = Field(
+        default=10,
+        ge=0,
+        description="Maximum number of unique screenshots sent to the VLM for report generation. "
+        "Set to 0 to use all unique screenshots (may increase VLM processing time and memory usage). "
+        "Screenshots are deduplicated before sampling, so this controls the cap after dedup.",
+    )
 
     @field_validator("vlm_base_url")
     @classmethod

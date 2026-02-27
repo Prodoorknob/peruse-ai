@@ -137,6 +137,7 @@ peruse run [OPTIONS]
 | `--reports` | | `all` | Reports to generate: `insights`, `ux`, `bugs`, `all` (comma-separated) |
 | `--persona` | | *(none)* | Agent persona prepended to the system prompt |
 | `--extra-instructions` | | *(none)* | Additional instructions appended to the agent prompt |
+| `--max-report-screenshots` | | `10` | Max unique screenshots for VLM reports (0 = use all) |
 | `--verbose` | `-v` | off | Enable debug logging |
 
 ### `peruse scan`
@@ -181,6 +182,7 @@ peruse focus-group [OPTIONS]
 | `--headless/--no-headless` | | `--headless` | Run browsers in headless mode |
 | `--reports` | | `all` | Reports to generate per persona |
 | `--extra-instructions` | | *(none)* | Additional instructions for all agents |
+| `--max-report-screenshots` | | `10` | Max unique screenshots for VLM reports (0 = use all) |
 | `--verbose` | `-v` | off | Enable debug logging |
 
 **Personas from a file:**
@@ -232,6 +234,7 @@ All settings can be passed via constructor, environment variables (`PERUSE_*`), 
 | `persona` | `PERUSE_PERSONA` | `""` | Agent persona prepended to the system prompt |
 | `extra_instructions` | `PERUSE_EXTRA_INSTRUCTIONS` | `""` | Additional instructions appended to the agent prompt |
 | `max_nudges` | `PERUSE_MAX_NUDGES` | `3` | Max nudge messages before hard-stopping on loops |
+| `max_report_screenshots` | `PERUSE_MAX_REPORT_SCREENSHOTS` | `10` | Max unique screenshots for VLM reports (0 = use all) |
 
 ### Persona
 

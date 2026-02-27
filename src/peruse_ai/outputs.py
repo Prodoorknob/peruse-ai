@@ -68,7 +68,7 @@ async def _vlm_invoke_with_retry(vlm: BaseChatModel, messages: list) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def generate_data_insights(result: AgentResult, vlm: BaseChatModel) -> str:
+async def generate_data_insights(result: AgentResult, vlm: BaseChatModel, max_screenshots: int = 10) -> str:
     """Generate a Markdown report summarizing visible data from the session.
 
     Uses the VLM to analyze screenshots and extract data insights.
@@ -76,6 +76,7 @@ async def generate_data_insights(result: AgentResult, vlm: BaseChatModel) -> str
     Args:
         result: The completed AgentResult.
         vlm: The VLM instance for analysis.
+        max_screenshots: Max unique screenshots to send to VLM (0 = all unique).
 
     Returns:
         A Markdown string with the data insights report.
@@ -84,7 +85,7 @@ async def generate_data_insights(result: AgentResult, vlm: BaseChatModel) -> str
         return "# Data Insights\n\nNo screenshots were captured during the session.\n"
 
     # Use a sample of unique screenshots — dedup removes near-identical frames
-    screenshots = _sample_screenshots(result.screenshots, max_count=10)
+    screenshots = _sample_screenshots(result.screenshots, max_count=max_screenshots)
     screenshots = [_compress_for_report(s) for s in screenshots]
     screenshots_b64 = [encode_image_b64(s) for s in screenshots]
 
@@ -122,12 +123,13 @@ async def generate_data_insights(result: AgentResult, vlm: BaseChatModel) -> str
 # ---------------------------------------------------------------------------
 
 
-async def generate_ux_review(result: AgentResult, vlm: BaseChatModel) -> str:
+async def generate_ux_review(result: AgentResult, vlm: BaseChatModel, max_screenshots: int = 10) -> str:
     """Generate a Markdown UX/UI critique from session screenshots.
 
     Args:
         result: The completed AgentResult.
         vlm: The VLM instance for analysis.
+        max_screenshots: Max unique screenshots to send to VLM (0 = all unique).
 
     Returns:
         A Markdown string with the UX/UI review report.
@@ -135,7 +137,7 @@ async def generate_ux_review(result: AgentResult, vlm: BaseChatModel) -> str:
     if not result.screenshots:
         return "# UX/UI Review\n\nNo screenshots were captured during the session.\n"
 
-    screenshots = _sample_screenshots(result.screenshots, max_count=8)
+    screenshots = _sample_screenshots(result.screenshots, max_count=max_screenshots)
     screenshots = [_compress_for_report(s) for s in screenshots]
     screenshots_b64 = [encode_image_b64(s) for s in screenshots]
 
@@ -247,6 +249,7 @@ async def save_outputs(
     generate_insights: bool = True,
     generate_ux: bool = True,
     generate_bugs: bool = True,
+    max_report_screenshots: int = 10,
 ) -> dict[str, Path]:
     """Generate and save all reports + screenshots to the output directory.
 
@@ -257,6 +260,7 @@ async def save_outputs(
         generate_insights: Whether to generate the data insights report.
         generate_ux: Whether to generate the UX review report.
         generate_bugs: Whether to generate the bug report.
+        max_report_screenshots: Max unique screenshots for VLM reports (0 = all unique).
 
     Returns:
         A dict mapping report type to file path.
@@ -270,13 +274,22 @@ async def save_outputs(
     model_name = vlm.__class__.__name__ if vlm else "no_vlm"
     ts = _timestamp_slug()
 
-    # Save screenshots
+    # Save deduplicated screenshots (skip consecutive near-identical frames)
     screenshots_dir = output_dir / "screenshots"
     screenshots_dir.mkdir(exist_ok=True)
+    prev_hash = None
+    saved_count = 0
     for i, step in enumerate(result.steps):
-        img_path = screenshots_dir / f"step_{i + 1:03d}.png"
-        img_path.write_bytes(step.perception.screenshot)
-    logger.info("Saved %d screenshots to %s", len(result.steps), screenshots_dir)
+        h = _image_hash(step.perception.screenshot)
+        if h != prev_hash:
+            img_path = screenshots_dir / f"step_{i + 1:03d}.png"
+            img_path.write_bytes(step.perception.screenshot)
+            saved_count += 1
+            prev_hash = h
+    logger.info(
+        "Saved %d unique screenshots out of %d steps to %s",
+        saved_count, len(result.steps), screenshots_dir,
+    )
 
     # Bug report (no VLM needed)
     if generate_bugs:
@@ -290,7 +303,7 @@ async def save_outputs(
     if vlm:
         if generate_insights:
             try:
-                insights = await generate_data_insights(result, vlm)
+                insights = await generate_data_insights(result, vlm, max_screenshots=max_report_screenshots)
                 insights_path = output_dir / f"data_insights_{model_name}_{ts}.md"
                 insights_path.write_text(insights, encoding="utf-8")
                 saved["insights"] = insights_path
@@ -305,7 +318,7 @@ async def save_outputs(
 
         if generate_ux:
             try:
-                ux_review = await generate_ux_review(result, vlm)
+                ux_review = await generate_ux_review(result, vlm, max_screenshots=max_report_screenshots)
                 ux_path = output_dir / f"ux_review_{model_name}_{ts}.md"
                 ux_path.write_text(ux_review, encoding="utf-8")
                 saved["ux"] = ux_path
@@ -350,12 +363,17 @@ def _compress_for_report(png_bytes: bytes, max_width: int = 1024, quality: int =
         return png_bytes
 
 
-def _sample_screenshots(screenshots: list[bytes], max_count: int = 5) -> list[bytes]:
+def _sample_screenshots(screenshots: list[bytes], max_count: int = 10) -> list[bytes]:
     """Deduplicate near-identical screenshots, then sample evenly.
 
     Uses perceptual hashing to drop consecutive frames that look the same
     (e.g. from scroll-only or stuck-in-loop steps). Then samples evenly
     from the unique set.
+
+    Args:
+        screenshots: Raw screenshot bytes from each step.
+        max_count: Maximum screenshots to return after dedup.
+            Set to 0 to return all unique screenshots.
     """
     if not screenshots:
         return []
@@ -373,8 +391,8 @@ def _sample_screenshots(screenshots: list[bytes], max_count: int = 5) -> list[by
         "Screenshot dedup: %d total → %d unique", len(screenshots), len(unique)
     )
 
-    # --- Step 2: Sample evenly from the unique set ---
-    if len(unique) <= max_count:
+    # --- Step 2: Sample evenly from the unique set (0 = use all) ---
+    if max_count <= 0 or len(unique) <= max_count:
         return unique
 
     step = len(unique) / max_count

@@ -69,6 +69,7 @@ class FocusGroup:
         generate_insights: bool = True,
         generate_ux: bool = True,
         generate_bugs: bool = True,
+        max_report_screenshots: int = 10,
     ) -> None:
         self.personas = personas
         self.url = url
@@ -77,6 +78,7 @@ class FocusGroup:
         self.generate_insights = generate_insights
         self.generate_ux = generate_ux
         self.generate_bugs = generate_bugs
+        self.max_report_screenshots = max_report_screenshots
 
     async def run(self) -> FocusGroupResult:
         """Run all persona agents concurrently and collect results.
@@ -148,6 +150,7 @@ class FocusGroup:
             generate_insights=self.generate_insights,
             generate_ux=self.generate_ux,
             generate_bugs=self.generate_bugs,
+            max_report_screenshots=self.max_report_screenshots,
         )
 
         logger.info(

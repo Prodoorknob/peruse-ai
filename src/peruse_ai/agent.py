@@ -147,8 +147,40 @@ async def execute_action(page, action: dict, dom_elements: list[dict]) -> None:
                 for sel in selects:
                     box = await sel.bounding_box()
                     if box and abs(box["x"] - rect["x"]) < 5 and abs(box["y"] - rect["y"]) < 5:
-                        await sel.select_option(label=value)
-                        logger.info("Selected option '%s' successfully", value)
+                        selected = False
+                        # Strategy 1: Match by label (visible text)
+                        try:
+                            await sel.select_option(label=value, timeout=3000)
+                            selected = True
+                        except Exception:
+                            pass
+                        # Strategy 2: Match by value attribute
+                        if not selected:
+                            try:
+                                await sel.select_option(value=value, timeout=3000)
+                                selected = True
+                            except Exception:
+                                pass
+                        # Strategy 3: Partial/substring match against available options
+                        if not selected:
+                            try:
+                                options = await sel.query_selector_all("option")
+                                for opt in options:
+                                    opt_text = (await opt.inner_text()).strip()
+                                    opt_value = await opt.get_attribute("value") or ""
+                                    if (value.lower() in opt_text.lower()
+                                            or value.lower() in opt_value.lower()
+                                            or opt_text.lower() in value.lower()
+                                            or opt_value.lower() in value.lower()):
+                                        await sel.select_option(value=opt_value, timeout=3000)
+                                        selected = True
+                                        break
+                            except Exception:
+                                pass
+                        if selected:
+                            logger.info("Selected option '%s' successfully", value)
+                        else:
+                            logger.warning("No matching option found for '%s' in element [%d]", value, element_id)
                         break
                 else:
                     logger.warning("Could not locate <select> element [%d] on page.", element_id)
@@ -421,9 +453,12 @@ class PeruseAgent:
             consecutive_parse_failures = 0
             max_parse_failures = 5  # Threshold before issuing a parse-failure nudge
             recent_actions: list[str] = []  # Track action signatures for loop detection
-            max_repeated_actions = 7  # Threshold before issuing a loop nudge
+            max_repeated_actions = 7  # Threshold for identical consecutive actions
+            low_variety_window = 12  # Window size for low-variety detection
+            low_variety_threshold = 2  # Max unique actions before considering it a loop
             nudge_count = 0  # Total nudges sent (shared between loop and parse nudges)
             pending_nudge: str | None = None  # Nudge to inject in the next step
+            avoided_elements: set[int] = set()  # Elements flagged in nudges
 
             for step_num in range(1, self.config.max_steps + 1):
                 logger.info("=== Step %d / %d ===", step_num, self.config.max_steps)
@@ -435,6 +470,7 @@ class PeruseAgent:
                         step_num=step_num,
                         step_history=step_history,
                         nudge=pending_nudge,
+                        avoided_elements=avoided_elements if avoided_elements else None,
                     )
                     pending_nudge = None  # Consume the nudge after it's been sent
                     result.steps.append(step)
@@ -474,33 +510,64 @@ class PeruseAgent:
                     # --- Loop detection with nudge ---
                     action_sig = _action_signature(step.parsed_action)
                     recent_actions.append(action_sig)
+
+                    loop_detected = False
+                    stuck_sigs: set[str] = set()
+
+                    # Check 1: Identical consecutive actions (7 in a row)
                     if len(recent_actions) >= max_repeated_actions:
                         tail = recent_actions[-max_repeated_actions:]
                         if len(set(tail)) == 1:
-                            nudge_count += 1
-                            if nudge_count > self.config.max_nudges:
-                                logger.warning(
-                                    "Loop detected after %d nudges: action '%s' repeated %d times. Stopping.",
-                                    nudge_count - 1, action_sig, max_repeated_actions,
-                                )
-                                result.completed = True
-                                result.final_summary = (
-                                    f"Agent stopped: repeated the same action ({action_sig}) "
-                                    f"despite {nudge_count - 1} nudge(s). Likely stuck in a loop."
-                                )
-                                break
-                            else:
-                                logger.info(
-                                    "Loop detected (nudge %d/%d): action '%s' repeated %d times. Nudging agent.",
-                                    nudge_count, self.config.max_nudges, action_sig, max_repeated_actions,
-                                )
-                                pending_nudge = (
-                                    "You have been repeating the same action multiple times without making progress. "
-                                    "Try a completely different approach: click a different element, scroll to a new "
-                                    "section, navigate to a different page, or if you have gathered enough information, "
-                                    "use the 'done' action to finish."
-                                )
-                                recent_actions.clear()  # Reset to give agent a fresh window
+                            loop_detected = True
+                            stuck_sigs = set(tail)
+
+                    # Check 2: Low variety — oscillating between 2 actions over 12 steps
+                    if not loop_detected and len(recent_actions) >= low_variety_window:
+                        window = recent_actions[-low_variety_window:]
+                        unique_in_window = set(window)
+                        if len(unique_in_window) <= low_variety_threshold:
+                            loop_detected = True
+                            stuck_sigs = unique_in_window
+
+                    if loop_detected:
+                        nudge_count += 1
+                        # Extract element IDs from stuck actions for targeted avoidance
+                        for sig in stuck_sigs:
+                            for part in sig.split("|"):
+                                if part.startswith("el="):
+                                    try:
+                                        avoided_elements.add(int(part[3:]))
+                                    except ValueError:
+                                        pass
+
+                        if nudge_count > self.config.max_nudges:
+                            logger.warning(
+                                "Loop detected after %d nudges: stuck actions %s. Stopping.",
+                                nudge_count - 1, stuck_sigs,
+                            )
+                            result.completed = True
+                            result.final_summary = (
+                                f"Agent stopped: stuck in a loop with actions {stuck_sigs} "
+                                f"despite {nudge_count - 1} nudge(s)."
+                            )
+                            break
+                        else:
+                            avoid_str = ", ".join(f"[{eid}]" for eid in sorted(avoided_elements))
+                            logger.info(
+                                "Loop detected (nudge %d/%d): stuck actions %s. Nudging agent. Avoid elements: %s",
+                                nudge_count, self.config.max_nudges, stuck_sigs, avoid_str,
+                            )
+                            pending_nudge = (
+                                "You have been repeating the same actions without making progress. "
+                                f"STOP interacting with element(s) {avoid_str} — you have already tried them. "
+                                "Instead, try one of these approaches:\n"
+                                "- Click a DIFFERENT navigation link or tab you have NOT visited yet\n"
+                                "- Scroll down to find new content below the fold\n"
+                                "- Navigate to a completely different page\n"
+                                "- If you have explored enough, use the 'done' action to finish\n"
+                                "Do NOT repeat any action you have already tried."
+                            )
+                            recent_actions.clear()  # Reset to give agent a fresh window
 
                     # Track history for VLM context
                     step_history.append({
@@ -536,6 +603,7 @@ class PeruseAgent:
         step_num: int,
         step_history: list[dict],
         nudge: str | None = None,
+        avoided_elements: set[int] | None = None,
     ) -> AgentStep:
         """Execute a single perceive → plan → act cycle.
 
@@ -545,6 +613,8 @@ class PeruseAgent:
             step_num: Current step number.
             step_history: History of previous steps for VLM context.
             nudge: Optional nudge message injected when the agent appears stuck.
+            avoided_elements: Element IDs the agent should not interact with.
+                If the VLM targets one of these, the action is replaced with a scroll.
 
         Returns:
             An AgentStep record.
@@ -576,7 +646,22 @@ class PeruseAgent:
         parsed = parse_vlm_response(raw_response)
         thought = parsed.get("thought", "")
 
-        # 4. ACT
+        # 4. ENFORCE — block actions on avoided elements
+        if avoided_elements:
+            target_id = parsed.get("element_id", -1)
+            if target_id in avoided_elements and parsed.get("action") not in ("done", "scroll", "wait", "navigate"):
+                logger.warning(
+                    "Blocked action '%s' on avoided element [%d] — substituting scroll.",
+                    parsed.get("action"), target_id,
+                )
+                parsed = {
+                    "action": "scroll",
+                    "direction": "down",
+                    "thought": f"(blocked: element [{target_id}] is avoided) {thought[:100]}",
+                    "_blocked": True,
+                }
+
+        # 5. ACT
         await execute_action(page, parsed, perception.dom_elements)
 
         return AgentStep(
